@@ -1,0 +1,257 @@
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import yaml
+
+from causalguard.mlops import log_experiment_if_enabled
+from causalguard.models import TLearner
+from causalguard.monitoring import (
+    brier_score,
+    cate_shift_score,
+    feature_drift_score,
+    ips_incremental_policy_value_per_customer,
+)
+from causalguard.policy import profit_score, top_fraction, true_incremental_value
+from causalguard.retraining import TriggerState, build_trigger
+from causalguard.simulation import CausalEnvironment, SimulationConfig
+
+
+def _coerce(value: str) -> Any:
+    low = value.lower()
+    if low in {"true", "false"}:
+        return low == "true"
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    try:
+        return float(value)
+    except ValueError:
+        return value
+
+
+def load_config(path: str | Path, overrides: list[str] | None = None) -> dict:
+    with open(path, "r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle)
+    for item in overrides or []:
+        if "=" not in item:
+            raise ValueError(f"Override must look like key=value: {item}")
+        key, value = item.split("=", 1)
+        config[key] = _coerce(value)
+    return config
+
+
+def _fit_model(training: pd.DataFrame, feature_names: list[str]) -> TLearner:
+    return TLearner().fit(training, feature_names)
+
+
+def run_experiment(config: dict) -> tuple[pd.DataFrame, dict]:
+    seed = int(config.get("seed", 42))
+    n_steps = int(config.get("n_steps", 30))
+    batch_size = int(config.get("batch_size", 800))
+    n_features = int(config.get("n_features", 8))
+    initial_train_steps = int(config.get("initial_train_steps", 5))
+    budget_fraction = float(config.get("budget_fraction", 0.25))
+    policy_name = str(config.get("policy", "profit"))
+    exploration_rate = float(config.get("exploration_rate", 0.10))
+    outcome_value = float(config.get("outcome_value", 250.0))
+    treatment_cost = float(config.get("treatment_cost", 8.0))
+    retraining_cost = float(config.get("retraining_cost", 250.0))
+    monitor_window = int(config.get("monitor_window_steps", 3))
+    max_train_rows = int(config.get("max_train_rows", 12000))
+
+    sim_config = SimulationConfig(
+        seed=seed,
+        n_features=n_features,
+        drift_type=str(config.get("drift_type", "none")),
+        drift_start=int(config.get("drift_start", 14)),
+        drift_strength=float(config.get("drift_strength", 1.25)),
+        drift_duration=int(config.get("drift_duration", 8)),
+    )
+    env = CausalEnvironment(sim_config)
+    assignment_rng = np.random.default_rng(seed + 101)
+    feature_names = [f"x{i}" for i in range(n_features)]
+
+    # Initial randomized experiment: clean causal training data.
+    initial_frames = []
+    for step in range(initial_train_steps):
+        raw = env.generate_batch(batch_size, step)
+        treatment = assignment_rng.binomial(1, 0.5, size=batch_size)
+        observed = env.realize_outcomes(raw, treatment)
+        observed["exploration"] = True
+        observed["policy_action"] = treatment
+        initial_frames.append(observed)
+    randomized_history = [pd.concat(initial_frames, ignore_index=True)]
+
+    training = randomized_history[0].copy()
+    model = _fit_model(training, feature_names)
+    reference_features = training[feature_names].copy()
+    anchor_features = reference_features.sample(
+        n=min(1000, len(reference_features)), random_state=seed
+    ).copy()
+    trigger = build_trigger(str(config.get("trigger", "never")), config)
+
+    steps_since_retrain = 0
+    cumulative_net_value = 0.0
+    rows: list[dict] = []
+
+    for step in range(initial_train_steps, n_steps):
+        raw = env.generate_batch(batch_size, step)
+        predictions = model.predict(raw)
+        customer_value = outcome_value * raw["value_multiplier"].to_numpy()
+        raw["customer_value"] = customer_value
+        if policy_name == "profit":
+            score = profit_score(predictions.uplift, customer_value, treatment_cost)
+            policy_action = top_fraction(score, budget_fraction)
+            policy_action = np.where(score > 0, policy_action, 0).astype(int)
+        elif policy_name == "uplift":
+            score = predictions.uplift
+            policy_action = top_fraction(score, budget_fraction)
+            policy_action = np.where(score > 0, policy_action, 0).astype(int)
+        elif policy_name == "risk":
+            score = 1.0 - predictions.p0
+            policy_action = top_fraction(score, budget_fraction)
+        elif policy_name == "random":
+            score = assignment_rng.random(batch_size)
+            policy_action = top_fraction(score, budget_fraction)
+        else:
+            raise ValueError(f"Unknown policy: {policy_name}")
+
+        exploration = assignment_rng.random(batch_size) < exploration_rate
+        treatment = policy_action.copy()
+        treatment[exploration] = assignment_rng.binomial(1, 0.5, size=int(exploration.sum()))
+
+        observed = env.realize_outcomes(raw, treatment)
+        observed["exploration"] = exploration
+        observed["policy_action"] = policy_action
+        observed["p0_hat"] = predictions.p0
+        observed["p1_hat"] = predictions.p1
+        observed["uplift_hat"] = predictions.uplift
+
+        observed_probability = np.where(treatment == 1, predictions.p1, predictions.p0)
+        current_brier = brier_score(observed["outcome"].to_numpy(), observed_probability)
+        current_feature_drift = feature_drift_score(reference_features, raw, feature_names)
+
+        randomized_batch = observed[observed["exploration"]].copy()
+        randomized_history.append(randomized_batch)
+        recent_randomized = pd.concat(randomized_history[-monitor_window:], ignore_index=True)
+        current_cate_shift = cate_shift_score(
+            recent_randomized,
+            anchor_features=anchor_features,
+            deployed_model=model,
+            feature_names=feature_names,
+        )
+        current_policy_value = ips_incremental_policy_value_per_customer(
+            recent_randomized,
+            outcome_value=None,
+            treatment_cost=treatment_cost,
+            propensity=0.5,
+            value_column="customer_value",
+        )
+
+        oracle_value = true_incremental_value(
+            observed,
+            treatment=treatment,
+            outcome_value=observed["customer_value"].to_numpy(),
+            treatment_cost=treatment_cost,
+        )
+
+        steps_since_retrain += 1
+        state = TriggerState(
+            step=step,
+            steps_since_retrain=steps_since_retrain,
+            feature_drift=current_feature_drift,
+            brier=current_brier,
+            cate_shift=current_cate_shift,
+            policy_value=current_policy_value,
+        )
+        retrained = trigger.should_retrain(state)
+
+        step_net_value = oracle_value
+        if retrained:
+            step_net_value -= retraining_cost
+            causal_training = pd.concat(randomized_history, ignore_index=True).tail(max_train_rows)
+            try:
+                model = _fit_model(causal_training, feature_names)
+                reference_features = causal_training[feature_names].copy()
+                steps_since_retrain = 0
+            except ValueError:
+                # Preserve the old model if the randomized sample is temporarily degenerate.
+                retrained = False
+                step_net_value += retraining_cost
+
+        cumulative_net_value += step_net_value
+
+        rows.append(
+            {
+                "step": step,
+                "drift_type": sim_config.drift_type,
+                "trigger": trigger.name,
+                "policy": policy_name,
+                "feature_drift": current_feature_drift,
+                "brier": current_brier,
+                "cate_shift": current_cate_shift,
+                "policy_value_estimate_per_customer": current_policy_value,
+                "oracle_incremental_value": oracle_value,
+                "oracle_value_per_customer": oracle_value / batch_size,
+                "true_mean_cate": observed["cate_true"].mean(),
+                "predicted_mean_uplift": predictions.uplift.mean(),
+                "policy_treatment_rate": policy_action.mean(),
+                "actual_treatment_rate": treatment.mean(),
+                "exploration_rate_realized": exploration.mean(),
+                "retrained": bool(retrained),
+                "step_net_value": step_net_value,
+                "cumulative_net_value": cumulative_net_value,
+            }
+        )
+
+    results = pd.DataFrame(rows)
+    summary = {
+        "drift_type": sim_config.drift_type,
+        "trigger": trigger.name,
+        "policy": policy_name,
+        "seed": seed,
+        "steps_evaluated": len(results),
+        "retrainings": int(results["retrained"].sum()) if len(results) else 0,
+        "final_cumulative_net_value": float(results["cumulative_net_value"].iloc[-1]) if len(results) else 0.0,
+        "mean_oracle_value_per_customer": float(results["oracle_value_per_customer"].mean()) if len(results) else 0.0,
+        "mean_feature_drift": float(results["feature_drift"].mean()) if len(results) else 0.0,
+        "mean_brier": float(results["brier"].mean()) if len(results) else 0.0,
+        "mean_cate_shift": float(results["cate_shift"].mean()) if len(results) else 0.0,
+    }
+    return results, summary
+
+
+def save_results(results: pd.DataFrame, summary: dict, output_dir: str | Path) -> None:
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    results.to_csv(output / "results.csv", index=False)
+    with open(output / "summary.json", "w", encoding="utf-8") as handle:
+        json.dump(summary, handle, indent=2)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run a CausalGuard simulation experiment")
+    parser.add_argument("--config", default="configs/experiments/base.yaml")
+    parser.add_argument("--output", default="experiments/latest")
+    parser.add_argument("--set", action="append", default=[], help="Override key=value")
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    config = load_config(args.config, args.set)
+    results, summary = run_experiment(config)
+    save_results(results, summary, args.output)
+    log_experiment_if_enabled(config, summary, args.output)
+    print(json.dumps(summary, indent=2))
+
+
+if __name__ == "__main__":
+    main()

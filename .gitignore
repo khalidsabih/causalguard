@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+mlruns/
+.dvc/cache/
+data/raw/*
+data/interim/*
+reports/figures/*.png
+experiments/*/results.csv

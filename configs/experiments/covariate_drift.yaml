@@ -1,0 +1,2 @@
+drift_type: covariate
+trigger: feature_drift

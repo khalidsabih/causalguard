@@ -1,0 +1,9 @@
+stages:
+  simulate:
+    cmd: python -m causalguard.pipelines.run_experiment --config configs/experiments/base.yaml --output experiments/latest
+    deps:
+      - src/causalguard
+      - configs/experiments/base.yaml
+    outs:
+      - experiments/latest/results.csv
+      - experiments/latest/summary.json

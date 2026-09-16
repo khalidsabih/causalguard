@@ -1,0 +1,2 @@
+[console_scripts]
+causalguard-run = causalguard.pipelines.run_experiment:main
