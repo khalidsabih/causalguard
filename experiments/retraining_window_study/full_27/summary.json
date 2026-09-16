@@ -1,0 +1,13 @@
+{
+  "drift_type": "treatment",
+  "trigger": "policy_value",
+  "policy": "profit",
+  "seed": 27,
+  "steps_evaluated": 25,
+  "retrainings": 16,
+  "final_cumulative_net_value": -74216.5598009064,
+  "mean_oracle_value_per_customer": -3.51082799004532,
+  "mean_feature_drift": 0.03239384932834857,
+  "mean_brier": 0.2108997366822163,
+  "mean_cate_shift": 0.15057909709224432
+}
