@@ -1,0 +1,19 @@
+{
+  "drift_type": "none",
+  "trigger": "policy_value_confident",
+  "policy": "profit",
+  "seed": 24,
+  "steps_evaluated": 25,
+  "retraining_data_strategy": "rolling_window",
+  "retraining_window_steps": 5,
+  "retraining_cooldown_steps": 0,
+  "monitor_window_steps": 3,
+  "policy_value_confidence_level": 0.9,
+  "retrainings": 1,
+  "retraining_requests": 1,
+  "final_cumulative_net_value": 205566.78599376953,
+  "mean_oracle_value_per_customer": 10.290839299688479,
+  "mean_feature_drift": 0.04008203389830509,
+  "mean_brier": 0.2213085595454684,
+  "mean_cate_shift": 0.15631306041553492
+}
