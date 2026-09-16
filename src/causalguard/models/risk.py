@@ -9,7 +9,7 @@ class ControlRiskModel:
     """Predicts untreated success probability from control observations."""
 
     def __init__(self):
-        self.model = LogisticRegression(max_iter=1000, class_weight="balanced")
+        self.model = LogisticRegression(max_iter=1000)
         self.feature_names: list[str] | None = None
         self.is_fitted = False
 

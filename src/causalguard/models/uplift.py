@@ -20,7 +20,7 @@ class TLearner:
 
     def __init__(self, base_estimator=None):
         if base_estimator is None:
-            base_estimator = LogisticRegression(max_iter=1000, class_weight="balanced")
+            base_estimator = LogisticRegression(max_iter=1000)
         self.model_control = clone(base_estimator)
         self.model_treated = clone(base_estimator)
         self.feature_names: list[str] | None = None
