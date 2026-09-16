@@ -11,6 +11,7 @@ class TriggerState:
     brier: float
     cate_shift: float
     policy_value: float
+    policy_value_upper: float = float("nan")
 
 
 class RetrainingTrigger:
@@ -44,7 +45,10 @@ class FeatureDriftTrigger(RetrainingTrigger):
         self.threshold = threshold
 
     def should_retrain(self, state: TriggerState) -> bool:
-        return state.feature_drift == state.feature_drift and state.feature_drift > self.threshold
+        return (
+            state.feature_drift == state.feature_drift
+            and state.feature_drift > self.threshold
+        )
 
 
 class PerformanceTrigger(RetrainingTrigger):
@@ -54,7 +58,10 @@ class PerformanceTrigger(RetrainingTrigger):
         self.max_brier = max_brier
 
     def should_retrain(self, state: TriggerState) -> bool:
-        return state.brier == state.brier and state.brier > self.max_brier
+        return (
+            state.brier == state.brier
+            and state.brier > self.max_brier
+        )
 
 
 class CateShiftTrigger(RetrainingTrigger):
@@ -64,7 +71,10 @@ class CateShiftTrigger(RetrainingTrigger):
         self.threshold = threshold
 
     def should_retrain(self, state: TriggerState) -> bool:
-        return state.cate_shift == state.cate_shift and state.cate_shift > self.threshold
+        return (
+            state.cate_shift == state.cate_shift
+            and state.cate_shift > self.threshold
+        )
 
 
 class PolicyValueTrigger(RetrainingTrigger):
@@ -74,20 +84,85 @@ class PolicyValueTrigger(RetrainingTrigger):
         self.min_value = min_value
 
     def should_retrain(self, state: TriggerState) -> bool:
-        return state.policy_value == state.policy_value and state.policy_value < self.min_value
+        return (
+            state.policy_value == state.policy_value
+            and state.policy_value < self.min_value
+        )
 
 
-def build_trigger(name: str, config: dict) -> RetrainingTrigger:
+class ConfidencePolicyValueTrigger(RetrainingTrigger):
+    name = "policy_value_confident"
+
+    def __init__(self, min_value: float):
+        self.min_value = min_value
+
+    def should_retrain(self, state: TriggerState) -> bool:
+        return (
+            state.policy_value_upper == state.policy_value_upper
+            and state.policy_value_upper < self.min_value
+        )
+
+
+def build_trigger(
+    name: str,
+    config: dict,
+) -> RetrainingTrigger:
     if name == "never":
         return NeverTrigger()
+
     if name == "periodic":
-        return PeriodicTrigger(int(config.get("periodic_every", 5)))
+        return PeriodicTrigger(
+            int(config.get("periodic_every", 5))
+        )
+
     if name == "feature_drift":
-        return FeatureDriftTrigger(float(config.get("feature_drift_threshold", 0.18)))
+        return FeatureDriftTrigger(
+            float(
+                config.get(
+                    "feature_drift_threshold",
+                    0.18,
+                )
+            )
+        )
+
     if name == "performance":
-        return PerformanceTrigger(float(config.get("performance_threshold", 0.26)))
+        return PerformanceTrigger(
+            float(
+                config.get(
+                    "performance_threshold",
+                    0.26,
+                )
+            )
+        )
+
     if name == "cate_shift":
-        return CateShiftTrigger(float(config.get("cate_shift_threshold", 0.08)))
+        return CateShiftTrigger(
+            float(
+                config.get(
+                    "cate_shift_threshold",
+                    0.08,
+                )
+            )
+        )
+
     if name == "policy_value":
-        return PolicyValueTrigger(float(config.get("policy_value_threshold", 0.0)))
+        return PolicyValueTrigger(
+            float(
+                config.get(
+                    "policy_value_threshold",
+                    0.0,
+                )
+            )
+        )
+
+    if name == "policy_value_confident":
+        return ConfidencePolicyValueTrigger(
+            float(
+                config.get(
+                    "policy_value_threshold",
+                    0.0,
+                )
+            )
+        )
+
     raise ValueError(f"Unknown trigger: {name}")
