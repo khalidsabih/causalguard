@@ -30,3 +30,6 @@ mlflow_enabled: false
 mlflow_experiment: CausalGuard
 retraining_data_strategy: full_history
 retraining_window_steps: 5
+# Minimum number of complete periods to wait after retraining
+# before another retraining can occur.
+retraining_cooldown_steps: 0

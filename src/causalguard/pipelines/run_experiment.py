@@ -72,6 +72,9 @@ def run_experiment(config: dict) -> tuple[pd.DataFrame, dict]:
     retraining_window_steps = int(
         config.get("retraining_window_steps", 5)
     )
+    retraining_cooldown_steps = int(
+        config.get("retraining_cooldown_steps", 0)
+    )
     sim_config = SimulationConfig(
         seed=seed,
         n_features=n_features,
@@ -106,6 +109,7 @@ def run_experiment(config: dict) -> tuple[pd.DataFrame, dict]:
     steps_since_retrain = 0
     cumulative_net_value = 0.0
     rows: list[dict] = []
+    last_retrain_step: int | None = None
 
     for step in range(initial_train_steps, n_steps):
         raw = env.generate_batch(batch_size, step)
@@ -177,9 +181,23 @@ def run_experiment(config: dict) -> tuple[pd.DataFrame, dict]:
             cate_shift=current_cate_shift,
             policy_value=current_policy_value,
         )
-        retrained = trigger.should_retrain(state)
+        should_retrain = trigger.should_retrain(state)
+
+        cooldown_complete = (
+            last_retrain_step is None
+            or step - last_retrain_step > retraining_cooldown_steps
+        )
+
+        retraining_blocked_by_cooldown = bool(
+            should_retrain and not cooldown_complete
+        )
+
+        retrained = bool(
+            should_retrain and cooldown_complete
+        )
 
         step_net_value = oracle_value
+
         if retrained:
             step_net_value -= retraining_cost
             if retraining_data_strategy == "full_history":
@@ -202,6 +220,7 @@ def run_experiment(config: dict) -> tuple[pd.DataFrame, dict]:
                 model = _fit_model(causal_training, feature_names)
                 reference_features = causal_training[feature_names].copy()
                 steps_since_retrain = 0
+                last_retrain_step = step
             except ValueError:
                 # Preserve the old model if the randomized sample is temporarily degenerate.
                 retrained = False
@@ -227,6 +246,7 @@ def run_experiment(config: dict) -> tuple[pd.DataFrame, dict]:
                 "actual_treatment_rate": treatment.mean(),
                 "exploration_rate_realized": exploration.mean(),
                 "retrained": bool(retrained),
+                "retraining_blocked_by_cooldown": retraining_blocked_by_cooldown,
                 "step_net_value": step_net_value,
                 "cumulative_net_value": cumulative_net_value,
             }
