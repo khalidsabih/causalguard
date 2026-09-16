@@ -7,7 +7,7 @@ from causalguard.data.openml import load_orange_belgium
 
 def _binary01(series: pd.Series, name: str) -> pd.Series:
     values = list(pd.Series(series.dropna().unique()).sort_values())
-    if set(values).issubset({0, 1, False, True}):
+    if set(values).issubset({0, 1}):
         return series.astype(int)
     string_values = {str(v).strip().lower(): v for v in values}
     if {"0", "1"}.issubset(string_values):
