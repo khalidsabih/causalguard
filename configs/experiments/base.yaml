@@ -28,3 +28,5 @@ monitor_window_steps: 5
 
 mlflow_enabled: false
 mlflow_experiment: CausalGuard
+retraining_data_strategy: full_history
+retraining_window_steps: 5

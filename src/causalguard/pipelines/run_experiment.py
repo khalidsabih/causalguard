@@ -65,7 +65,13 @@ def run_experiment(config: dict) -> tuple[pd.DataFrame, dict]:
     retraining_cost = float(config.get("retraining_cost", 250.0))
     monitor_window = int(config.get("monitor_window_steps", 3))
     max_train_rows = int(config.get("max_train_rows", 12000))
+    retraining_data_strategy = str(
+        config.get("retraining_data_strategy", "full_history")
+    )
 
+    retraining_window_steps = int(
+        config.get("retraining_window_steps", 5)
+    )
     sim_config = SimulationConfig(
         seed=seed,
         n_features=n_features,
@@ -87,9 +93,9 @@ def run_experiment(config: dict) -> tuple[pd.DataFrame, dict]:
         observed["exploration"] = True
         observed["policy_action"] = treatment
         initial_frames.append(observed)
-    randomized_history = [pd.concat(initial_frames, ignore_index=True)]
+    randomized_history = [frame.copy() for frame in initial_frames]
 
-    training = randomized_history[0].copy()
+    training = pd.concat(randomized_history, ignore_index=True)
     model = _fit_model(training, feature_names)
     reference_features = training[feature_names].copy()
     anchor_features = reference_features.sample(
@@ -176,7 +182,22 @@ def run_experiment(config: dict) -> tuple[pd.DataFrame, dict]:
         step_net_value = oracle_value
         if retrained:
             step_net_value -= retraining_cost
-            causal_training = pd.concat(randomized_history, ignore_index=True).tail(max_train_rows)
+            if retraining_data_strategy == "full_history":
+                causal_training = pd.concat(
+                    randomized_history,
+                    ignore_index=True,
+                ).tail(max_train_rows)
+
+            elif retraining_data_strategy == "rolling_window":
+                causal_training = pd.concat(
+                    randomized_history[-retraining_window_steps:],
+                    ignore_index=True,
+                )
+
+            else:
+                raise ValueError(
+                    f"Unknown retraining_data_strategy: {retraining_data_strategy}"
+                )
             try:
                 model = _fit_model(causal_training, feature_names)
                 reference_features = causal_training[feature_names].copy()
