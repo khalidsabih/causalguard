@@ -12,11 +12,18 @@ CausalGuard is a research-first **Causal ML + MLOps** project that asks a produc
 
 It compares feature-distribution, predictive-performance, treatment-effect, and policy-value retraining signals under controlled temporal shift, then evaluates whether acting on those signals actually improves the economics of the deployed treatment policy.
 
+CausalGuard now combines two complementary evidence layers:
+
+1. **Controlled simulation** — evaluates monitoring and retraining strategies under known temporal distribution shift.
+2. **Randomized real data** — evaluates predictive-risk and causal uplift targeting on the Orange Belgium retention benchmark.
+
+The simulation study addresses **when to retrain**. The Orange study addresses **how causal targeting compares with predictive targeting on randomized real-world data**.
+
 ---
 
 ## Live dashboard
 
-Explore the frozen benchmark, monitoring behavior, and mechanism analysis:
+Explore both the frozen simulation benchmark and the randomized Orange real-data study:
 
 ### [Launch CausalGuard Dashboard →](https://causalguard.streamlit.app/)
 
@@ -125,38 +132,71 @@ analysis/main_trigger_benchmark/figures/
 
 ---
 
+## Randomized real-data study
+
+CausalGuard also evaluates targeting policies on the Orange Belgium randomized retention benchmark.
+
+| Component | Orange study |
+|---|---:|
+| Customers | 11,896 |
+| Features | 178 |
+| Treatment rate | 75.74% |
+| Cross-fitting | 5 folds |
+| Primary estimator | DR / AIPW |
+| Primary targeting budget | 25% |
+
+The pre-specified primary comparison is **predictive-risk targeting versus uplift targeting**.
+
+At the 25% targeting budget:
+
+| Comparison | DR difference per customer | 95% CI |
+|---|---:|---:|
+| Risk − Uplift | **+0.002637** | **[-0.001649, +0.006924]** |
+
+The point estimate is positive, but the confidence interval includes zero. The final analysis therefore does **not provide clear evidence of a difference** between predictive-risk and uplift targeting at the primary budget.
+
+### Cross-fit partition stability
+
+Across 10 cross-fitting partitions of the same 11,896 customers:
+
+- mean Risk − Uplift difference: **+0.003242**
+- median difference: **+0.003183**
+- range: **+0.000817 to +0.005311**
+- positive point estimates: **10 / 10**
+- partition-specific 95% CIs excluding zero: **2 / 10**
+
+These partitions reuse the same customers and therefore measure **sensitivity to fold assignment**, not independent replication.
+
+Orange does not provide the temporal structure needed to validate the drift/retraining mechanisms. Those claims remain controlled-simulation evidence.
+
+---
+
 ## Dashboard
 
-The Streamlit application provides three interactive views.
+The Streamlit application has two top-level research tabs.
 
-### Benchmark Overview
-
-Explore:
-
-- mean net value
-- 95% confidence intervals
-- retraining burden
-- paired comparisons against never retraining
-- primary versus secondary strategies
-
-### Monitoring Behavior
+### Simulation Benchmark
 
 Explore:
 
-- stationary action behavior
-- monitoring request burden
-- post-drift response rate
-- missed-response rate
-- first-response delay
-- post-drift retraining activity
+- mean net value and 95% confidence intervals
+- retraining burden and paired comparisons
+- stationary monitoring behavior
+- post-drift response and response delay
+- covariate, persistent-treatment, and recurring-treatment mechanisms
 
-### Mechanism Explorer
+### Orange Real Data
 
-Inspect the temporal mechanisms behind three important cases:
+Explore:
 
-- covariate drift and harmful retraining
-- persistent treatment-effect drift and useful adaptation
-- recurring treatment-effect drift and adaptation phase mismatch
+- randomized-retention dataset characteristics
+- cross-fitted DR/AIPW policy values
+- predictive-risk versus uplift targeting
+- the pre-specified 25% primary comparison
+- 10% and 50% budget sensitivities
+- cross-fit partition stability
+
+The Orange tab is intentionally separate from the temporal-drift benchmark. It evaluates real-data causal targeting, not real-world retraining under temporal drift.
 
 Run the dashboard locally with:
 
@@ -242,11 +282,16 @@ Thresholds were calibrated before the final evaluation seeds and were not retune
 ```text
 causalguard/
 ├── analysis/
-│   └── main_trigger_benchmark/
-│       ├── frozen aggregate results
-│       ├── paired comparisons
-│       ├── mechanism trajectories
-│       └── publication figures
+│   ├── main_trigger_benchmark/
+│   │   ├── frozen aggregate results
+│   │   ├── paired comparisons
+│   │   ├── mechanism trajectories
+│   │   └── publication figures
+│   └── orange/
+│       ├── data audit
+│       ├── primary policy results
+│       ├── primary paired results
+│       └── partition-stability summaries
 ├── configs/
 │   └── experiments/
 │       ├── experiment definitions
@@ -261,7 +306,8 @@ causalguard/
 │   └── exploratory work only
 ├── reports/
 │   └── paper/
-│       ├── protocol
+│       ├── simulation protocol
+│       ├── orange_protocol.md
 │       ├── claims log
 │       └── related-work notes
 ├── scripts/
@@ -286,6 +332,7 @@ The frozen aggregate outputs required by the dashboard and reported analysis are
 
 ```text
 analysis/main_trigger_benchmark/
+analysis/orange/
 ```
 
 ---
@@ -357,19 +404,21 @@ python -m ruff check .
 python -m pytest -q
 ```
 
-Current frozen release state: **11 tests passing**.
+Current release state: **21 tests passing**.
 
 GitHub Actions runs linting and the automated test suite on pushes and pull requests.
 
 ---
 
-## Real-data role
+## Randomized real-data evidence
 
-The repository includes an OpenML adapter for the Orange Belgium randomized retention benchmark.
+The Orange Belgium study is a completed secondary study within CausalGuard. It uses randomized treatment assignments, 5-fold cross-fitting, and a doubly robust DR/AIPW estimator to compare targeting policies out of sample.
 
-Real randomized data are useful for studying estimator behavior and the difficulty of causal targeting, but they do not provide oracle ground truth for temporal drift mechanisms.
+The pre-specified primary 25% comparison estimated Risk − Uplift at **+0.002637 retained customers per customer** with a **95% CI of [-0.001649, +0.006924]**. The interval includes zero, so the result is reported as uncertain rather than as evidence that one targeting strategy universally dominates the other.
 
-The main monitoring/retraining claims are therefore framed as **controlled simulation evidence**, not as claims about real Orange customers.
+Across 10 alternative cross-fit partitions, the point estimate remained positive, but these partitions reuse the same customers and are treated as **algorithmic/fold stability**, not independent replication.
+
+Orange does not provide oracle counterfactual treatment effects or a controlled temporal drift process. The monitoring and retraining claims therefore remain **controlled simulation evidence**.
 
 ---
 
@@ -397,7 +446,7 @@ The current study intentionally uses transparent causal baselines and a controll
 Natural extensions include:
 
 - sequentially valid causal monitoring / confidence sequences
-- doubly robust off-policy evaluation
+- doubly robust and sequentially valid monitoring under temporal drift
 - formal CATE change-point methods
 - delayed-outcome modeling
 - exploration-rate sensitivity
@@ -430,11 +479,14 @@ reports/paper/claims_log.md
 
 The main CausalGuard research release is complete:
 
-- frozen 1,260-run held-out benchmark
+- frozen 1,260-run held-out simulation benchmark
 - aggregate and paired uncertainty analysis
 - mechanism analysis and figures
+- randomized Orange real-data targeting study
+- cross-fitted DR/AIPW policy evaluation
+- fold-partition stability analysis
 - automated tests
-- interactive Streamlit dashboard
+- two-tab interactive Streamlit dashboard
 - public deployment
 
 Future work is focused on research extensions, external validation, and communication rather than changes to the frozen benchmark.

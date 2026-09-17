@@ -3,7 +3,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
-
 INPUT = Path(
     "analysis/main_trigger_benchmark/"
     "mechanism_trajectories.csv"

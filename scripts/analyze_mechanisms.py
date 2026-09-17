@@ -3,7 +3,6 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-
 ANALYSIS = Path("analysis/main_trigger_benchmark")
 CONFIG = Path("configs/experiments/trigger_benchmark_frozen.yaml")
 

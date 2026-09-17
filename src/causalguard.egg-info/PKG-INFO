@@ -29,93 +29,313 @@ Requires-Dist: ruff>=0.7; extra == "all"
 
 # CausalGuard
 
-**Monitoring and retraining causal targeting policies under distribution shift.**
+![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
+[![Streamlit](https://img.shields.io/badge/Streamlit-Live-FF4B4B?logo=streamlit&logoColor=white)](https://causalguard.streamlit.app/)
+![Benchmark](https://img.shields.io/badge/Frozen%20Benchmark-1%2C260%20runs-success)
 
-CausalGuard is a research-first ML/MLOps project. The core question is:
+**Decision-aware monitoring and retraining for causal targeting policies under distribution shift.**
 
-> Which observable production signal should trigger retraining when the real objective is preserving the causal and economic value of a treatment policy rather than ordinary predictive accuracy?
+CausalGuard is a research-first **Causal ML + MLOps** project that asks a production question ordinary model monitoring does not answer:
 
-The repository is intentionally structured so that the scientific question comes before the tooling.
+> **When should a causal targeting policy be retrained if the real objective is preserving decision value rather than predictive accuracy?**
 
-## What is implemented now
+It compares feature-distribution, predictive-performance, treatment-effect, and policy-value retraining signals under controlled temporal shift, then evaluates whether acting on those signals actually improves the economics of the deployed treatment policy.
 
-The first working version contains:
+---
 
-- a synthetic causal environment with known counterfactual probabilities;
-- separate covariate, outcome, abrupt treatment-effect, gradual treatment-effect, and recurring treatment-effect drift;
-- a simple T-learner causal baseline;
-- random, risk-based, uplift-based, and profit-aware treatment-allocation baselines;
-- heterogeneous customer value so profit-aware targeting is genuinely different from pure uplift ranking;
-- persistent randomized exploration traffic;
-- feature-drift monitoring;
-- predictive Brier-score monitoring;
-- a transparent CATE-shift proxy monitor built from recent randomized traffic;
-- inverse-propensity policy-value monitoring from randomized traffic;
-- six retraining policies: never, periodic, feature-drift, predictive-performance, CATE-shift, and policy-value;
-- retraining cost and treatment cost in the experiment objective;
-- a reproducible experiment runner;
-- a small matrix runner for comparing drift/trigger combinations;
-- unit and end-to-end tests;
-- a Streamlit dashboard scaffold;
-- CI and Docker scaffolding;
-- an OpenML loader and baseline runner for the Orange Belgium churn-uplift benchmark (`t` treatment, `y` churn);
+## Live dashboard
 
-This version deliberately uses transparent baselines. Publication-grade CATE change-point detection, doubly robust policy-value estimation, confidence intervals, Hillstrom/Orange adapters, and contextual-bandit comparisons are planned research extensions rather than hidden behind premature complexity.
+Explore the frozen benchmark, monitoring behavior, and mechanism analysis:
 
-## Scientific structure
+### [Launch CausalGuard Dashboard →](https://causalguard.streamlit.app/)
 
-### Study A - Real data
+> The dashboard is read-only. It does not rerun experiments, retune thresholds, or retrain models.
 
-Use randomized marketing/retention data to answer:
+---
 
-1. How different is churn/conversion-risk targeting from treatment-effect targeting?
-2. Are estimated heterogeneous treatment effects stable enough to act on?
-3. Does profit-aware targeting change who receives treatment?
-4. How uncertain are policy comparisons?
+## Main result
 
-The intended main benchmark is Orange Belgium (OpenML data id 45580). Hillstrom can be used first as a causal-learning warm-up.
+> **Detecting distribution shift is not equivalent to detecting a need to retrain.**
 
-### Study B - Controlled production simulation
+Retraining creates value when a persistent shift damages the causal decision rule, but can destroy value when the shift is decision-irrelevant or when adaptation lags a recurring environment.
 
-A simulator gives us the counterfactual ground truth that real data cannot provide. It separates:
+Three mechanisms drive the main result:
 
-- `P(X)` - customer characteristics;
-- baseline outcome behavior;
-- treatment effect `tau(X)`.
+- **Covariate drift:** the feature monitor detects the shift, but retraining reduces decision value even though the treatment rate remains unchanged.
+- **Persistent treatment-effect drift:** causal retraining learns to suppress treatment after treatment effects become harmful and recovers substantial economic value.
+- **Recurring treatment-effect drift:** the same adaptive behavior can become out of phase with the environment, so fast retraining can perform worse than leaving the policy stale.
 
-This lets us construct shifts where input data change without treatment value changing, and shifts where treatment value collapses while input distributions remain relatively stable.
+---
 
-### Study C - Monitoring and retraining
+## Benchmark at a glance
 
-Compare monitoring layers:
+The final held-out benchmark is frozen and contains:
 
-1. feature drift;
-2. prediction/performance drift;
-3. treatment-effect change detection (future extension);
-4. causal policy-value monitoring.
+| Component | Final benchmark |
+|---|---:|
+| Drift regimes | 6 |
+| Retraining strategies | 7 |
+| Evaluation seeds | 30 (`1000-1029`) |
+| Total runs | **1,260** |
 
-Then compare retraining rules:
+### Drift regimes
 
-1. never retrain;
-2. periodic retraining;
-3. feature-drift trigger;
-4. predictive-performance trigger;
-5. causal-policy-value trigger;
-6. hybrid/adaptive policies (future extension).
+1. No drift
+2. Covariate drift
+3. Outcome drift
+4. Abrupt treatment-effect drift
+5. Gradual treatment-effect drift
+6. Recurring treatment-effect drift
 
-The primary target metric is **cumulative incremental net value**, not model accuracy alone.
+### Retraining strategies
 
-## Quick start
+Primary benchmark strategies:
 
-Create an environment and install the project:
+1. Never retrain
+2. Periodic retraining
+3. Feature-drift trigger
+4. Predictive-performance trigger
+5. CATE-shift trigger
+6. Policy-value trigger
+
+Secondary sensitivity analysis:
+
+7. Confidence-aware policy-value trigger
+
+The confidence-aware strategy uses a pilot-informed 80% confidence setting and is therefore reported as a **secondary sensitivity**, not as a primary pre-specified benchmark strategy.
+
+---
+
+## Selected findings
+
+Mean net value varies strongly by drift regime, so the benchmark should not be interpreted as a universal trigger leaderboard.
+
+| Regime | Comparison | Mean net-value difference |
+|---|---|---:|
+| No drift | Periodic vs never | **-€37.4k** |
+| Covariate drift | Feature drift vs never | **-€30.3k** |
+| Abrupt treatment drift | Policy value vs never | **+€51.8k** |
+| Gradual treatment drift | Policy value vs never | **+€23.8k** |
+| Recurring treatment drift | Policy value vs never | **-€37.4k** |
+
+Paired bootstrap intervals, stationary-action behavior, response delays, and run-level summaries are available under:
+
+```text
+analysis/main_trigger_benchmark/
+```
+
+---
+
+## Mechanism analysis
+
+The final analysis separates direct retraining expense from downstream policy effects.
+
+| Regime / strategy | Mean net Δ vs never | Direct retraining cost | Decision-value Δ vs never |
+|---|---:|---:|---:|
+| Covariate / feature drift | -€30,255 | €1,267 | -€28,988 |
+| Treatment / policy value | +€51,825 | €3,200 | +€55,025 |
+| Recurring treatment / policy value | -€37,432 | €2,450 | -€34,982 |
+
+The main gains and losses are therefore driven mostly by **policy adaptation**, not by the nominal retraining fee itself.
+
+### Recurring drift: adaptation can become out of phase
+
+![Recurring treatment-effect drift mechanism](analysis/main_trigger_benchmark/figures/mechanism_recurring_treatment.png)
+
+The learned policy adapts to one treatment-effect regime, but the environment can switch again before the model catches up.
+
+The result is a **phase mismatch** between the current causal regime and the policy's learned treatment behavior.
+
+Additional mechanism figures are available in:
+
+```text
+analysis/main_trigger_benchmark/figures/
+```
+
+---
+
+## Dashboard
+
+The Streamlit application provides three interactive views.
+
+### Benchmark Overview
+
+Explore:
+
+- mean net value
+- 95% confidence intervals
+- retraining burden
+- paired comparisons against never retraining
+- primary versus secondary strategies
+
+### Monitoring Behavior
+
+Explore:
+
+- stationary action behavior
+- monitoring request burden
+- post-drift response rate
+- missed-response rate
+- first-response delay
+- post-drift retraining activity
+
+### Mechanism Explorer
+
+Inspect the temporal mechanisms behind three important cases:
+
+- covariate drift and harmful retraining
+- persistent treatment-effect drift and useful adaptation
+- recurring treatment-effect drift and adaptation phase mismatch
+
+Run the dashboard locally with:
+
+```bash
+pip install -e '.[dashboard]'
+python -m streamlit run dashboard/app.py
+```
+
+Or use the hosted version:
+
+**https://causalguard.streamlit.app/**
+
+---
+
+## Scientific design
+
+CausalGuard separates three parts of the data-generating process:
+
+- `P(X)`: customer characteristics
+- baseline outcome behavior
+- heterogeneous treatment effect `tau(X)`
+
+This allows controlled shifts in which input distributions change without treatment value changing, as well as shifts in which treatment effects change while conventional monitoring signals remain comparatively stable.
+
+The production simulation also maintains **persistent randomized exploration traffic**.
+
+Causal monitoring and causal retraining use observations with known treatment propensities rather than silently treating policy-generated treatment assignments as randomized data.
+
+### Economic objective
+
+The primary target is cumulative incremental net value.
+
+Treatment cost is included in per-customer incremental value, retraining cost is charged when a retraining event succeeds, and randomized exploration can reduce value endogenously because it overrides the policy action for part of the traffic.
+
+CausalGuard therefore treats retraining as an **economic decision**, not an automatic reaction to detected shift.
+
+---
+
+## Oracle vs deployable signals
+
+The simulator exposes privileged counterfactual quantities such as true CATE and oracle incremental value.
+
+These are used **only for evaluation**.
+
+They are never inputs to deployable monitoring or retraining triggers.
+
+This distinction is central to the project:
+
+> A monitor must act using signals that could plausibly exist in production, while the simulator can use oracle information afterward to evaluate whether those decisions were good.
+
+---
+
+## Frozen configuration
+
+The final benchmark configuration is stored at:
+
+```text
+configs/experiments/trigger_benchmark_frozen.yaml
+```
+
+Key frozen settings:
+
+```yaml
+feature_drift_threshold: 0.04406
+performance_threshold: 0.2296
+cate_shift_threshold: 0.2326
+policy_value_threshold: 0.0
+
+monitor_window_steps: 3
+policy_value_confidence_level: 0.80
+
+retraining_data_strategy: rolling_window
+retraining_window_steps: 5
+retraining_cooldown_steps: 0
+```
+
+Thresholds were calibrated before the final evaluation seeds and were not retuned after the held-out benchmark.
+
+---
+
+## Repository layout
+
+```text
+causalguard/
+├── analysis/
+│   └── main_trigger_benchmark/
+│       ├── frozen aggregate results
+│       ├── paired comparisons
+│       ├── mechanism trajectories
+│       └── publication figures
+├── configs/
+│   └── experiments/
+│       ├── experiment definitions
+│       └── frozen benchmark configuration
+├── dashboard/
+│   └── Streamlit results dashboard
+├── data/
+│   └── local/external data locations
+├── experiments/
+│   └── local raw experiment outputs
+├── notebooks/
+│   └── exploratory work only
+├── reports/
+│   └── paper/
+│       ├── protocol
+│       ├── claims log
+│       └── related-work notes
+├── scripts/
+│   ├── benchmark analysis
+│   ├── mechanism analysis
+│   └── figure generation
+├── src/causalguard/
+│   ├── data/
+│   ├── models/
+│   ├── policy/
+│   ├── simulation/
+│   ├── monitoring/
+│   ├── retraining/
+│   ├── evaluation/
+│   └── pipelines/
+└── tests/
+```
+
+Raw benchmark runs are intentionally kept out of the public release to avoid repository bloat.
+
+The frozen aggregate outputs required by the dashboard and reported analysis are committed under:
+
+```text
+analysis/main_trigger_benchmark/
+```
+
+---
+
+## Installation
+
+Python 3.11 is recommended.
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e '.[dev]'
+
+python -m pip install --upgrade pip
+pip install -e '.[dev,dashboard]'
 ```
 
-Run the default experiment:
+Conda works equally well. The project was developed and validated with Python 3.11.
+
+---
+
+## Run a single experiment
 
 ```bash
 causalguard-run \
@@ -133,96 +353,121 @@ causalguard-run \
   --set trigger=periodic
 ```
 
-Run the small experiment matrix:
+---
 
-```bash
-python -m causalguard.pipelines.run_matrix \
-  --config configs/experiments/base.yaml \
-  --seeds 1,2,3 \
-  --output experiments/matrix_summary.csv
-```
+## Reproduce the frozen analysis
 
-Run tests:
-
-```bash
-pytest -q
-```
-
-Optional dashboard:
-
-```bash
-pip install -e '.[dashboard]'
-streamlit run dashboard/app.py
-```
-
-## Experiment output
-
-Each single experiment produces a time series with fields such as:
-
-- feature drift;
-- Brier score;
-- estimated incremental policy value per customer;
-- oracle incremental value (simulation only);
-- true and predicted average treatment effect;
-- policy and actual treatment rates;
-- retraining events;
-- cumulative net value.
-
-The distinction between `estimated` and `oracle` metrics is important: oracle metrics use simulator-only counterfactual knowledge and must never be presented as available in a real deployment.
-
-## Repository layout
+If the raw final benchmark outputs are available locally under:
 
 ```text
-causalguard/
-├── configs/                 experiment definitions
-├── dashboard/               explanatory dashboard
-├── data/                    local data locations (not committed)
-├── experiments/             experiment outputs
-├── notebooks/               exploratory work only
-├── reports/
-│   └── paper/               research protocol / manuscript material
-├── src/causalguard/
-│   ├── data/                external data loaders
-│   ├── models/              predictive and causal estimators
-│   ├── policy/              treatment allocation and value
-│   ├── simulation/          causal data-generating process and drift
-│   ├── monitoring/          monitoring signals
-│   ├── retraining/          trigger policies
-│   ├── evaluation/          research metrics
-│   └── pipelines/           reproducible experiment runners
-└── tests/
+experiments/main_trigger_benchmark/
 ```
+
+run:
+
+```bash
+python scripts/analyze_main_benchmark.py
+python scripts/analyze_mechanisms.py
+python scripts/plot_main_mechanisms.py
+```
+
+These commands regenerate the aggregate CSVs and mechanism figures under:
+
+```text
+analysis/main_trigger_benchmark/
+```
+
+---
+
+## Tests and code quality
+
+```bash
+python -m ruff check .
+python -m pytest -q
+```
+
+Current frozen release state: **11 tests passing**.
+
+GitHub Actions runs linting and the automated test suite on pushes and pull requests.
+
+---
+
+## Real-data role
+
+The repository includes an OpenML adapter for the Orange Belgium randomized retention benchmark.
+
+Real randomized data are useful for studying estimator behavior and the difficulty of causal targeting, but they do not provide oracle ground truth for temporal drift mechanisms.
+
+The main monitoring/retraining claims are therefore framed as **controlled simulation evidence**, not as claims about real Orange customers.
+
+---
 
 ## Research safeguards
 
-The project follows several rules from the start:
+The study follows several rules throughout:
 
-- do not assume uplift models must beat predictive targeting;
-- keep real-data evidence separate from simulated evidence;
-- do not use the simulator's true CATE in a deployable monitor;
-- retain randomized exploration data for causal monitoring/retraining;
-- report uncertainty before declaring one policy better;
-- include simple baselines such as no retraining and periodic retraining;
-- predefine final hypotheses and primary outcomes before the large experiment matrix;
-- avoid claiming academic novelty until a systematic literature search is completed.
+- do not assume uplift targeting must outperform predictive targeting
+- do not assume sophisticated retraining triggers must beat periodic or no retraining
+- keep real-data evidence separate from simulator-oracle evidence
+- never use simulator oracle quantities as deployable monitoring signals
+- retain randomized exploration for causal monitoring and retraining
+- report paired uncertainty rather than relying on mean rankings alone
+- preserve simple baselines such as never and periodic retraining
+- freeze thresholds before final evaluation seeds
+- treat negative and null findings as scientifically useful
+- avoid first-of-its-kind novelty claims without a systematic literature review
 
-## Current limitations
+---
 
-This is the first executable research scaffold, not the finished paper. Important next steps are:
+## Limitations and extensions
 
-- add publication-grade real-data adapters for Hillstrom and Orange Belgium;
-- add risk targeting and stronger causal learners as explicit policy baselines;
-- add bootstrap/repeated-seed uncertainty summaries;
-- add CATE change-point detection;
-- add doubly robust/off-policy policy-value estimators;
-- model delayed outcomes explicitly;
-- sweep drift strength, exploration fraction, retraining cost, and treatment cost;
-- add an adaptive contextual-bandit benchmark;
-- add MLflow/DVC only after the experiment volume justifies them;
-- replace the dashboard scaffold with article-driven visualizations after results stabilize.
+The current study intentionally uses transparent causal baselines and a controlled simulator.
 
-## Working paper question
+Natural extensions include:
 
-A precise version of the intended research question is:
+- sequentially valid causal monitoring / confidence sequences
+- doubly robust off-policy evaluation
+- formal CATE change-point methods
+- delayed-outcome modeling
+- exploration-rate sensitivity
+- broader cost and drift-strength sensitivity analysis
+- stronger causal learners
+- contextual-bandit adaptation
+- larger real-data uncertainty studies
 
-> How do distribution-based, prediction-based, treatment-effect-based, and policy-value-based retraining triggers compare in preserving the net decision value of a causal targeting policy under temporal distribution shift?
+These are **extensions to the frozen benchmark**, not missing pieces required to interpret the reported main experiment.
+
+---
+
+## Related work and claims discipline
+
+Working literature notes are in:
+
+```text
+reports/paper/related_work.md
+```
+
+The repository also maintains a claims log distinguishing simulation evidence, randomized real-data evidence, oracle quantities, and unsupported novelty claims:
+
+```text
+reports/paper/claims_log.md
+```
+
+---
+
+## Status
+
+The main CausalGuard research release is complete:
+
+- frozen 1,260-run held-out benchmark
+- aggregate and paired uncertainty analysis
+- mechanism analysis and figures
+- automated tests
+- interactive Streamlit dashboard
+- public deployment
+
+Future work is focused on research extensions, external validation, and communication rather than changes to the frozen benchmark.
+
+---
+
+_CausalGuard is a research prototype for studying decision-aware causal retraining under controlled distribution shift. It is not intended as a production decision system without additional validation, monitoring, and domain-specific safeguards._

@@ -43,5 +43,6 @@ tests/test_models.py
 tests/test_monitoring.py
 tests/test_pipeline.py
 tests/test_policy.py
+tests/test_retraining_triggers.py
 tests/test_simulation.py
 tests/test_uncertainty.py

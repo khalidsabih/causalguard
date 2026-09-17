@@ -53,10 +53,10 @@ def main() -> None:
 
     audit = {
         "data_id": args.data_id,
-        "rows": int(len(frame)),
-        "feature_count": int(len(feature_names)),
-        "numeric_feature_count": int(len(numeric)),
-        "categorical_feature_count": int(len(categorical)),
+        "rows": len(frame),
+        "feature_count": len(feature_names),
+        "numeric_feature_count": len(numeric),
+        "categorical_feature_count": len(categorical),
         "treatment_counts": {
             str(key): int(value)
             for key, value in frame["treatment"].value_counts().sort_index().items()
@@ -70,7 +70,7 @@ def main() -> None:
         "churn_rate_control": control_churn,
         "churn_rate_treated": treated_churn,
         "churn_reduction_control_minus_treated": control_churn - treated_churn,
-        "features_with_missing": int(len(missing_counts)),
+        "features_with_missing": len(missing_counts),
         "missing_cells": int(frame[feature_names].isna().sum().sum()),
         "top_missing_features": [
             {
