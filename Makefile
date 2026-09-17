@@ -13,4 +13,4 @@ matrix:
 	python -m causalguard.pipelines.run_matrix --config configs/experiments/base.yaml --seeds 1,2,3 --output experiments/matrix_summary.csv
 
 dashboard:
-	streamlit run dashboard/app.py
+	python -m streamlit run dashboard/app.py

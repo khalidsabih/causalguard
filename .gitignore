@@ -9,3 +9,13 @@ data/raw/*
 data/interim/*
 reports/figures/*.png
 experiments/*/results.csv
+
+# Final benchmark local/generated experiment artifacts
+experiments/feature_reference_smoke_covariate/
+experiments/feature_reference_smoke_none/
+experiments/feature_threshold_calibration/
+experiments/feature_threshold_validation/
+experiments/main_trigger_benchmark/
+experiments/threshold_validation_nodrift/
+experiments/trigger_matrix_smoke/
+experiments/trigger_matrix_smoke_summary.csv
