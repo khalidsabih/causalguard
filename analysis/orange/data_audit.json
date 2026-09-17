@@ -1,0 +1,24 @@
+{
+  "data_id": 45580,
+  "rows": 11896,
+  "feature_count": 178,
+  "numeric_feature_count": 160,
+  "categorical_feature_count": 18,
+  "treatment_counts": {
+    "0": 2886,
+    "1": 9010
+  },
+  "treatment_rate": 0.7573974445191661,
+  "control_rate": 0.24260255548083387,
+  "retention_rate_overall": 0.9657027572293208,
+  "retention_rate_control": 0.9636174636174636,
+  "retention_rate_treated": 0.9663706992230855,
+  "retention_ate_treated_minus_control": 0.0027532356056219065,
+  "churn_rate_control": 0.03638253638253641,
+  "churn_rate_treated": 0.033629300776914506,
+  "churn_reduction_control_minus_treated": 0.0027532356056219065,
+  "features_with_missing": 0,
+  "missing_cells": 0,
+  "top_missing_features": [],
+  "possible_time_or_campaign_columns": []
+}

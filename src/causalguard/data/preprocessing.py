@@ -34,6 +34,7 @@ def build_logistic_pipeline(frame: pd.DataFrame, feature_names: list[str]) -> Pi
     return Pipeline(
         [
             ("preprocess", preprocess),
-            ("model", LogisticRegression(max_iter=2000, class_weight="balanced")),
+            # Preserve probability calibration for causal probability differences.
+            ("model", LogisticRegression(max_iter=2000)),
         ]
     )
