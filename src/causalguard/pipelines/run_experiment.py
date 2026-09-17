@@ -17,9 +17,16 @@ from causalguard.monitoring import (
     feature_drift_score,
     ips_incremental_policy_value_with_ci,
 )
-from causalguard.policy import profit_score, top_fraction, true_incremental_value
+from causalguard.policy import (
+    profit_score,
+    top_fraction,
+    true_incremental_value,
+)
 from causalguard.retraining import TriggerState, build_trigger
-from causalguard.simulation import CausalEnvironment, SimulationConfig
+from causalguard.simulation import (
+    CausalEnvironment,
+    SimulationConfig,
+)
 
 
 def _coerce(value: str) -> Any:
@@ -43,7 +50,11 @@ def load_config(
     path: str | Path,
     overrides: list[str] | None = None,
 ) -> dict:
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(
+        path,
+        "r",
+        encoding="utf-8",
+    ) as handle:
         config = yaml.safe_load(handle)
 
     for item in overrides or []:
@@ -71,45 +82,99 @@ def _fit_model(
 def run_experiment(
     config: dict,
 ) -> tuple[pd.DataFrame, dict]:
-    seed = int(config.get("seed", 42))
-    n_steps = int(config.get("n_steps", 30))
-    batch_size = int(config.get("batch_size", 800))
-    n_features = int(config.get("n_features", 8))
+    # ---------------------------------------------------------
+    # Experiment configuration
+    # ---------------------------------------------------------
+
+    seed = int(
+        config.get(
+            "seed",
+            42,
+        )
+    )
+
+    n_steps = int(
+        config.get(
+            "n_steps",
+            30,
+        )
+    )
+
+    batch_size = int(
+        config.get(
+            "batch_size",
+            800,
+        )
+    )
+
+    n_features = int(
+        config.get(
+            "n_features",
+            8,
+        )
+    )
 
     initial_train_steps = int(
-        config.get("initial_train_steps", 5)
+        config.get(
+            "initial_train_steps",
+            5,
+        )
     )
 
     budget_fraction = float(
-        config.get("budget_fraction", 0.25)
+        config.get(
+            "budget_fraction",
+            0.25,
+        )
     )
 
     policy_name = str(
-        config.get("policy", "profit")
+        config.get(
+            "policy",
+            "profit",
+        )
     )
 
     exploration_rate = float(
-        config.get("exploration_rate", 0.10)
+        config.get(
+            "exploration_rate",
+            0.10,
+        )
     )
 
     outcome_value = float(
-        config.get("outcome_value", 250.0)
+        config.get(
+            "outcome_value",
+            250.0,
+        )
     )
 
     treatment_cost = float(
-        config.get("treatment_cost", 8.0)
+        config.get(
+            "treatment_cost",
+            8.0,
+        )
     )
 
     retraining_cost = float(
-        config.get("retraining_cost", 250.0)
+        config.get(
+            "retraining_cost",
+            250.0,
+        )
     )
 
     monitor_window = int(
-        config.get("monitor_window_steps", 3)
+        config.get(
+            "monitor_window_steps",
+            3,
+        )
     )
 
     max_train_rows = int(
-        config.get("max_train_rows", 12000)
+        config.get(
+            "max_train_rows",
+            12000,
+        )
     )
 
     retraining_data_strategy = str(
@@ -140,31 +205,50 @@ def run_experiment(
         )
     )
 
+    # ---------------------------------------------------------
+    # Simulation configuration
+    # ---------------------------------------------------------
+
     sim_config = SimulationConfig(
         seed=seed,
         n_features=n_features,
         drift_type=str(
-            config.get("drift_type", "none")
+            config.get(
+                "drift_type",
+                "none",
+            )
         ),
         drift_start=int(
-            config.get("drift_start", 14)
+            config.get(
+                "drift_start",
+                14,
+            )
         ),
         drift_strength=float(
-            config.get("drift_strength", 1.25)
+            config.get(
+                "drift_strength",
+                1.25,
+            )
         ),
         drift_duration=int(
-            config.get("drift_duration", 8)
+            config.get(
+                "drift_duration",
+                8,
+            )
         ),
     )
 
-    env = CausalEnvironment(sim_config)
+    env = CausalEnvironment(
+        sim_config
+    )
 
     assignment_rng = np.random.default_rng(
         seed + 101
     )
 
     feature_names = [
-        f"x{i}" for i in range(n_features)
+        f"x{i}"
+        for i in range(n_features)
     ]
 
     # ---------------------------------------------------------
@@ -173,16 +257,20 @@ def run_experiment(
 
     initial_frames: list[pd.DataFrame] = []
 
-    for step in range(initial_train_steps):
+    for step in range(
+        initial_train_steps
+    ):
         raw = env.generate_batch(
             batch_size,
             step,
         )
 
-        treatment = assignment_rng.binomial(
-            1,
-            0.5,
-            size=batch_size,
+        treatment = (
+            assignment_rng.binomial(
+                1,
+                0.5,
+                size=batch_size,
+            )
         )
 
         observed = env.realize_outcomes(
@@ -193,20 +281,28 @@ def run_experiment(
         observed["exploration"] = True
         observed["policy_action"] = treatment
 
-        initial_frames.append(observed)
+        initial_frames.append(
+            observed
+        )
 
     # ---------------------------------------------------------
-    # Two deliberately separate histories
+    # Three deliberately separate histories
     #
     # randomized_history:
-    #   data that can be used to train/retrain the causal model.
-    #   Includes the initial randomized experiment and subsequent
-    #   production exploration observations.
+    #   Randomized data used for causal model training and
+    #   retraining. Includes the initial RCT and production
+    #   exploration observations.
     #
     # monitoring_history:
-    #   production exploration observations only.
-    #   Used for online monitoring so the initial RCT does not
-    #   contaminate the rolling production monitoring window.
+    #   Production exploration observations only.
+    #   Used for causal monitoring so the initial randomized
+    #   training experiment does not contaminate the rolling
+    #   production monitoring window.
+    #
+    # feature_history:
+    #   Full-population feature batches.
+    #   Used only for feature-drift reference updates.
+    #   No treatment randomization is required to observe X.
     # ---------------------------------------------------------
 
     randomized_history = [
@@ -214,7 +310,20 @@ def run_experiment(
         for frame in initial_frames
     ]
 
-    monitoring_history: list[pd.DataFrame] = []
+    monitoring_history: list[
+        pd.DataFrame
+    ] = []
+
+    feature_history = [
+        frame[
+            feature_names
+        ].copy()
+        for frame in initial_frames
+    ]
+
+    # ---------------------------------------------------------
+    # Initial causal model
+    # ---------------------------------------------------------
 
     training = pd.concat(
         randomized_history,
@@ -226,17 +335,26 @@ def run_experiment(
         feature_names,
     )
 
+    # Initial feature reference uses the complete initial
+    # randomized experiment, which contains full feature batches.
     reference_features = training[
         feature_names
     ].copy()
 
-    anchor_features = reference_features.sample(
-        n=min(
-            1000,
-            len(reference_features),
-        ),
-        random_state=seed,
-    ).copy()
+    # Fixed anchor population used by the CATE-shift monitor.
+    anchor_features = (
+        reference_features.sample(
+            n=min(
+                1000,
+                len(reference_features),
+            ),
+            random_state=seed,
+        ).copy()
+    )
+
+    # ---------------------------------------------------------
+    # Retraining trigger
+    # ---------------------------------------------------------
 
     trigger = build_trigger(
         str(
@@ -253,7 +371,11 @@ def run_experiment(
     # ---------------------------------------------------------
 
     steps_since_retrain = 0
-    last_retrain_step: int | None = None
+
+    last_retrain_step: (
+        int | None
+    ) = None
+
     cumulative_net_value = 0.0
 
     rows: list[dict] = []
@@ -266,19 +388,40 @@ def run_experiment(
         initial_train_steps,
         n_steps,
     ):
+        # -----------------------------------------------------
+        # Generate production population
+        # -----------------------------------------------------
+
         raw = env.generate_batch(
             batch_size,
             step,
         )
 
-        predictions = model.predict(raw)
+        # Predictions must be produced using the currently
+        # deployed model, before any retraining at this step.
+        predictions = model.predict(
+            raw
+        )
 
         customer_value = (
             outcome_value
-            * raw["value_multiplier"].to_numpy()
+            * raw[
+                "value_multiplier"
+            ].to_numpy()
         )
 
-        raw["customer_value"] = customer_value
+        raw[
+            "customer_value"
+        ] = customer_value
+
+        # Full-population X is available regardless of treatment
+        # assignment. Keep it separate from causal exploration
+        # data.
+        feature_history.append(
+            raw[
+                feature_names
+            ].copy()
+        )
 
         # -----------------------------------------------------
         # Policy decision
@@ -291,11 +434,15 @@ def run_experiment(
                 treatment_cost,
             )
 
-            policy_action = top_fraction(
-                score,
-                budget_fraction,
+            policy_action = (
+                top_fraction(
+                    score,
+                    budget_fraction,
+                )
             )
 
+            # Do not spend treatment cost on customers whose
+            # predicted incremental profit is non-positive.
             policy_action = np.where(
                 score > 0,
                 policy_action,
@@ -303,11 +450,15 @@ def run_experiment(
             ).astype(int)
 
         elif policy_name == "uplift":
-            score = predictions.uplift
+            score = (
+                predictions.uplift
+            )
 
-            policy_action = top_fraction(
-                score,
-                budget_fraction,
+            policy_action = (
+                top_fraction(
+                    score,
+                    budget_fraction,
+                )
             )
 
             policy_action = np.where(
@@ -322,24 +473,31 @@ def run_experiment(
                 - predictions.p0
             )
 
-            policy_action = top_fraction(
-                score,
-                budget_fraction,
+            policy_action = (
+                top_fraction(
+                    score,
+                    budget_fraction,
+                )
             )
 
         elif policy_name == "random":
-            score = assignment_rng.random(
-                batch_size
+            score = (
+                assignment_rng.random(
+                    batch_size
+                )
             )
 
-            policy_action = top_fraction(
-                score,
-                budget_fraction,
+            policy_action = (
+                top_fraction(
+                    score,
+                    budget_fraction,
+                )
             )
 
         else:
             raise ValueError(
-                f"Unknown policy: {policy_name}"
+                "Unknown policy: "
+                f"{policy_name}"
             )
 
         # -----------------------------------------------------
@@ -353,52 +511,77 @@ def run_experiment(
             < exploration_rate
         )
 
-        treatment = policy_action.copy()
+        treatment = (
+            policy_action.copy()
+        )
 
-        treatment[exploration] = (
-            assignment_rng.binomial(
-                1,
-                0.5,
-                size=int(
-                    exploration.sum()
-                ),
+        treatment[
+            exploration
+        ] = assignment_rng.binomial(
+            1,
+            0.5,
+            size=int(
+                exploration.sum()
+            ),
+        )
+
+        # -----------------------------------------------------
+        # Realize observed outcomes
+        # -----------------------------------------------------
+
+        observed = (
+            env.realize_outcomes(
+                raw,
+                treatment,
             )
         )
 
-        # -----------------------------------------------------
-        # Realize outcomes
-        # -----------------------------------------------------
+        observed[
+            "exploration"
+        ] = exploration
 
-        observed = env.realize_outcomes(
-            raw,
-            treatment,
-        )
+        observed[
+            "policy_action"
+        ] = policy_action
 
-        observed["exploration"] = exploration
-        observed["policy_action"] = policy_action
-        observed["p0_hat"] = predictions.p0
-        observed["p1_hat"] = predictions.p1
-        observed["uplift_hat"] = predictions.uplift
+        observed[
+            "p0_hat"
+        ] = predictions.p0
+
+        observed[
+            "p1_hat"
+        ] = predictions.p1
+
+        observed[
+            "uplift_hat"
+        ] = predictions.uplift
 
         # -----------------------------------------------------
         # Predictive monitoring
         # -----------------------------------------------------
 
-        observed_probability = np.where(
-            treatment == 1,
-            predictions.p1,
-            predictions.p0,
+        observed_probability = (
+            np.where(
+                treatment == 1,
+                predictions.p1,
+                predictions.p0,
+            )
         )
 
-        current_brier = brier_score(
-            observed[
-                "outcome"
-            ].to_numpy(),
-            observed_probability,
+        current_brier = (
+            brier_score(
+                observed[
+                    "outcome"
+                ].to_numpy(),
+                observed_probability,
+            )
         )
 
         # -----------------------------------------------------
-        # Feature drift
+        # Feature-drift monitoring
+        #
+        # Compare the current complete production population
+        # against the current feature reference.
         # -----------------------------------------------------
 
         current_feature_drift = (
@@ -413,25 +596,31 @@ def run_experiment(
         # Production randomized exploration sample
         # -----------------------------------------------------
 
-        randomized_batch = observed[
-            observed["exploration"]
-        ].copy()
+        randomized_batch = (
+            observed[
+                observed[
+                    "exploration"
+                ]
+            ].copy()
+        )
 
-        # Used for future causal retraining.
+        # Used for future causal model retraining.
         randomized_history.append(
             randomized_batch
         )
 
-        # Used only for production monitoring.
+        # Used only for production causal monitoring.
         monitoring_history.append(
             randomized_batch
         )
 
-        recent_randomized = pd.concat(
-            monitoring_history[
-                -monitor_window:
-            ],
-            ignore_index=True,
+        recent_randomized = (
+            pd.concat(
+                monitoring_history[
+                    -monitor_window:
+                ],
+                ignore_index=True,
+            )
         )
 
         # -----------------------------------------------------
@@ -479,17 +668,25 @@ def run_experiment(
         # -----------------------------------------------------
         # Simulator-only oracle value
         #
-        # This is unavailable in real production and must not
-        # be used by deployable monitoring logic.
+        # IMPORTANT:
+        # This quantity is unavailable in real production.
+        # It is used only to evaluate the policy and must never
+        # be used by deployable monitoring/retraining logic.
         # -----------------------------------------------------
 
-        oracle_value = true_incremental_value(
-            observed,
-            treatment=treatment,
-            outcome_value=observed[
-                "customer_value"
-            ].to_numpy(),
-            treatment_cost=treatment_cost,
+        oracle_value = (
+            true_incremental_value(
+                observed,
+                treatment=treatment,
+                outcome_value=(
+                    observed[
+                        "customer_value"
+                    ].to_numpy()
+                ),
+                treatment_cost=(
+                    treatment_cost
+                ),
+            )
         )
 
         # -----------------------------------------------------
@@ -507,17 +704,22 @@ def run_experiment(
                 current_feature_drift
             ),
             brier=current_brier,
-            cate_shift=current_cate_shift,
+            cate_shift=(
+                current_cate_shift
+            ),
             policy_value=(
                 current_policy_value
             ),
             policy_value_upper=(
-                policy_value_result.upper_one_sided
+                policy_value_result
+                .upper_one_sided
             ),
         )
 
         should_retrain = (
-            trigger.should_retrain(state)
+            trigger.should_retrain(
+                state
+            )
         )
 
         # -----------------------------------------------------
@@ -547,7 +749,9 @@ def run_experiment(
         # Economic accounting
         # -----------------------------------------------------
 
-        step_net_value = oracle_value
+        step_net_value = (
+            oracle_value
+        )
 
         # -----------------------------------------------------
         # Retraining
@@ -558,26 +762,34 @@ def run_experiment(
                 retraining_cost
             )
 
+            # ---------------------------------------------
+            # Choose causal training data
+            # ---------------------------------------------
+
             if (
                 retraining_data_strategy
                 == "full_history"
             ):
-                causal_training = pd.concat(
-                    randomized_history,
-                    ignore_index=True,
-                ).tail(
-                    max_train_rows
+                causal_training = (
+                    pd.concat(
+                        randomized_history,
+                        ignore_index=True,
+                    ).tail(
+                        max_train_rows
+                    )
                 )
 
             elif (
                 retraining_data_strategy
                 == "rolling_window"
             ):
-                causal_training = pd.concat(
-                    randomized_history[
-                        -retraining_window_steps:
-                    ],
-                    ignore_index=True,
+                causal_training = (
+                    pd.concat(
+                        randomized_history[
+                            -retraining_window_steps:
+                        ],
+                        ignore_index=True,
+                    )
                 )
 
             else:
@@ -587,28 +799,51 @@ def run_experiment(
                     f"{retraining_data_strategy}"
                 )
 
+            # ---------------------------------------------
+            # Fit new causal model
+            # ---------------------------------------------
+
             try:
                 model = _fit_model(
                     causal_training,
                     feature_names,
                 )
 
+                # -----------------------------------------
+                # IMPORTANT:
+                #
+                # Feature-drift monitoring uses the full
+                # production feature population, not the
+                # randomized exploration subset used for
+                # causal model training.
+                #
+                # This prevents a retraining event from
+                # replacing the feature reference with a
+                # small/noisy exploration sample.
+                # -----------------------------------------
+
                 reference_features = (
-                    causal_training[
-                        feature_names
-                    ].copy()
+                    pd.concat(
+                        feature_history[
+                            -retraining_window_steps:
+                        ],
+                        ignore_index=True,
+                    )
                 )
 
                 steps_since_retrain = 0
-                last_retrain_step = step
+                last_retrain_step = (
+                    step
+                )
 
             except ValueError:
-                # Keep the old model when the randomized
-                # retraining sample is temporarily degenerate.
+                # Keep the old deployed model when the
+                # randomized causal retraining sample is
+                # temporarily degenerate.
                 retrained = False
 
-                # Undo the retraining charge because fitting
-                # did not successfully occur.
+                # Fitting failed, so undo the retraining
+                # charge.
                 step_net_value += (
                     retraining_cost
                 )
@@ -627,12 +862,18 @@ def run_experiment(
                 "drift_type": (
                     sim_config.drift_type
                 ),
-                "trigger": trigger.name,
-                "policy": policy_name,
+                "trigger": (
+                    trigger.name
+                ),
+                "policy": (
+                    policy_name
+                ),
                 "feature_drift": (
                     current_feature_drift
                 ),
-                "brier": current_brier,
+                "brier": (
+                    current_brier
+                ),
                 "cate_shift": (
                     current_cate_shift
                 ),
@@ -640,7 +881,8 @@ def run_experiment(
                     current_policy_value
                 ),
                 "policy_value_standard_error": (
-                    policy_value_result.standard_error
+                    policy_value_result
+                    .standard_error
                 ),
                 "policy_value_lower": (
                     policy_value_result.lower
@@ -649,7 +891,8 @@ def run_experiment(
                     policy_value_result.upper
                 ),
                 "policy_value_upper_one_sided": (
-                    policy_value_result.upper_one_sided
+                    policy_value_result
+                    .upper_one_sided
                 ),
                 "policy_value_monitor_n": (
                     policy_value_result.n
@@ -667,7 +910,9 @@ def run_experiment(
                     ].mean()
                 ),
                 "predicted_mean_uplift": (
-                    predictions.uplift.mean()
+                    predictions
+                    .uplift
+                    .mean()
                 ),
                 "policy_treatment_rate": (
                     policy_action.mean()
@@ -700,15 +945,23 @@ def run_experiment(
     # Experiment outputs
     # ---------------------------------------------------------
 
-    results = pd.DataFrame(rows)
+    results = pd.DataFrame(
+        rows
+    )
 
     summary = {
         "drift_type": (
             sim_config.drift_type
         ),
-        "trigger": trigger.name,
-        "policy": policy_name,
-        "seed": seed,
+        "trigger": (
+            trigger.name
+        ),
+        "policy": (
+            policy_name
+        ),
+        "seed": (
+            seed
+        ),
         "steps_evaluated": (
             len(results)
         ),
@@ -792,7 +1045,10 @@ def run_experiment(
         ),
     }
 
-    return results, summary
+    return (
+        results,
+        summary,
+    )
 
 
 def save_results(
@@ -800,7 +1056,9 @@ def save_results(
     summary: dict,
     output_dir: str | Path,
 ) -> None:
-    output = Path(output_dir)
+    output = Path(
+        output_dir
+    )
 
     output.mkdir(
         parents=True,
@@ -840,29 +1098,38 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--output",
-        default="experiments/latest",
+        default=(
+            "experiments/latest"
+        ),
     )
 
     parser.add_argument(
         "--set",
         action="append",
         default=[],
-        help="Override key=value",
+        help=(
+            "Override key=value"
+        ),
     )
 
     return parser
 
 
 def main() -> None:
-    args = build_parser().parse_args()
+    args = (
+        build_parser()
+        .parse_args()
+    )
 
     config = load_config(
         args.config,
         args.set,
     )
 
-    results, summary = run_experiment(
-        config
+    results, summary = (
+        run_experiment(
+            config
+        )
     )
 
     save_results(

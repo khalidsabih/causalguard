@@ -1,0 +1,4 @@
+drift,trigger,mean_net_delta_vs_never,mean_retrainings,direct_retraining_cost,decision_value_delta_vs_never
+covariate,feature_drift,-30254.607780335886,5.066666666666666,1266.6666666666665,-28987.941113669218
+treatment,policy_value,51825.21655502006,12.8,3200.0,55025.21655502006
+recurring_treatment,policy_value,-37431.9277188026,9.8,2450.0,-34981.9277188026

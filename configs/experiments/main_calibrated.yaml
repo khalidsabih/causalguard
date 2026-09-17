@@ -1,0 +1,52 @@
+seed: 42
+n_steps: 30
+batch_size: 800
+n_features: 8
+initial_train_steps: 5
+
+budget_fraction: 0.25
+policy: profit
+
+exploration_rate: 0.10
+
+outcome_value: 250.0
+treatment_cost: 8.0
+retraining_cost: 250.0
+
+label_delay_steps: 0
+
+# Drift types:
+# none, covariate, outcome, treatment,
+# gradual_treatment, recurring_treatment
+drift_type: treatment
+drift_start: 14
+drift_strength: 1.25
+drift_duration: 8
+
+# Retraining trigger:
+# never, periodic, feature_drift, performance,
+# cate_shift, policy_value, policy_value_confident
+trigger: policy_value
+
+periodic_every: 5
+feature_drift_threshold: 0.0422
+performance_threshold: 0.2296
+cate_shift_threshold: 0.2326
+policy_value_threshold: 0.0
+
+# Rolling production monitoring window
+monitor_window_steps: 3
+
+# Confidence interval used by policy_value_confident
+policy_value_confidence_level: 0.80
+
+# Causal retraining data
+retraining_data_strategy: rolling_window
+retraining_window_steps: 5
+
+# Minimum number of complete periods to wait after retraining
+# before another retraining can occur.
+retraining_cooldown_steps: 0
+
+mlflow_enabled: false
+mlflow_experiment: CausalGuard
